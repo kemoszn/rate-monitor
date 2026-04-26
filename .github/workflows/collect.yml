@@ -49,6 +49,13 @@ jobs:
           SLACK_RATE_WEBHOOK_URL: ${{ secrets.SLACK_RATE_WEBHOOK_URL }}
           SLACK_OPS_WEBHOOK_URL: ${{ secrets.SLACK_OPS_WEBHOOK_URL }}
           EXTRACTION_TARGET_COUNTRY: ${{ secrets.EXTRACTION_TARGET_COUNTRY }}
+          # Baseline expected failures from a non-target-country runner:
+          # provider-c (LuLu) IP-served content gives 3 PARSE_FAILED, and
+          # provider-e (Careem) does not support NPR (1 unsupported). Setting
+          # the threshold to 5 leaves 1-failure headroom for transient issues
+          # before the workflow goes red. Lower this once a residential proxy
+          # is in place.
+          FAILURE_EXIT_THRESHOLD: '5'
           TRIGGER_REASON: ${{ github.event.inputs.reason || 'cron_hourly' }}
           LOG_LEVEL: info
 
