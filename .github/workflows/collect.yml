@@ -48,6 +48,7 @@ jobs:
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           SLACK_RATE_WEBHOOK_URL: ${{ secrets.SLACK_RATE_WEBHOOK_URL }}
           SLACK_OPS_WEBHOOK_URL: ${{ secrets.SLACK_OPS_WEBHOOK_URL }}
+          EXTRACTION_TARGET_COUNTRY: ${{ secrets.EXTRACTION_TARGET_COUNTRY }}
           TRIGGER_REASON: ${{ github.event.inputs.reason || 'cron_hourly' }}
           LOG_LEVEL: info
 
