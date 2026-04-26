@@ -1,0 +1,72 @@
+name: collect
+
+on:
+  schedule:
+    # 16 runs/day, off-the-hour, UTC 02-17 = local hours 06-21 (UTC+4)
+    - cron: '37 2-17 * * *'
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Free-text reason for this manual run (recorded as trigger_reason)'
+        required: false
+        default: 'manual_dispatch'
+
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Schedule jitter
+        # Smear actual run start across a ~9-minute window so requests don't
+        # land at the exact same second every hour.
+        run: sleep $((RANDOM % 540))
+
+      - name: Run collector
+        run: npm run collect:once --workspace @rate-monitor/collector
+        env:
+          PROVIDER_CONFIG_JSON: ${{ secrets.PROVIDER_CONFIG_JSON }}
+          QUOTE_CURRENCIES: ${{ secrets.QUOTE_CURRENCIES }}
+          BASE_CURRENCY: ${{ secrets.BASE_CURRENCY }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          SLACK_RATE_WEBHOOK_URL: ${{ secrets.SLACK_RATE_WEBHOOK_URL }}
+          SLACK_OPS_WEBHOOK_URL: ${{ secrets.SLACK_OPS_WEBHOOK_URL }}
+          TRIGGER_REASON: ${{ github.event.inputs.reason || 'cron_hourly' }}
+          LOG_LEVEL: info
+
+      - name: Upload run logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ github.run_id }}
+          path: |
+            apps/collector/logs/**
+            apps/collector/debug-artifacts/**
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Notify ops on workflow failure
+        if: failure() && env.SLACK_OPS_WEBHOOK_URL != ''
+        env:
+          SLACK_OPS_WEBHOOK_URL: ${{ secrets.SLACK_OPS_WEBHOOK_URL }}
+        run: |
+          curl -sS -X POST -H 'Content-Type: application/json' \
+            -d "{\"text\":\"collect run failed (id=${{ github.run_id }}): https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            "$SLACK_OPS_WEBHOOK_URL" || true

@@ -1,0 +1,31 @@
+{
+  "name": "@rate-monitor/collector",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "discover:provider": "tsx src/cli/providerMaintenance.ts discover",
+    "repair:provider": "tsx src/cli/providerMaintenance.ts repair",
+    "benchmark:providers": "node --import tsx src/cli/benchmarkProviders.ts",
+    "collect:once": "node --import tsx src/cli/collectAll.ts",
+    "check": "tsc --noEmit -p tsconfig.json",
+    "test": "node --import tsx --test src/**/*.test.ts"
+  },
+  "dependencies": {
+    "@browserbasehq/stagehand": "^3.0.0",
+    "@libsql/client": "^0.15.15",
+    "@rate-monitor/shared": "0.1.0",
+    "dotenv": "^16.6.1",
+    "fastify": "^5.6.1",
+    "playwright": "^1.58.2",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.2"
+  }
+}

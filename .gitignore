@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+
+# Local env (real secrets live in GHA secrets, not in the repo).
+apps/collector/.env
+apps/collector/debug-artifacts/
+apps/collector/discovery-artifacts/
+apps/collector/data/
+
+# Pre-built secret blobs ready to paste into GitHub repo settings.
+# Never commit — these contain real provider URLs and selectors.
+.gha-secrets/

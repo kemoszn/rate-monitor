@@ -1,0 +1,31 @@
+name: cron-health
+
+on:
+  schedule:
+    # Mondays 09:00 UTC — weekly missed-run audit.
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit run count over last 7 days
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          SLACK_OPS_WEBHOOK_URL: ${{ secrets.SLACK_OPS_WEBHOOK_URL }}
+          # 16 expected runs/day × 7 days = 112; alert if substantially fewer.
+          MIN_EXPECTED_RUNS: '90'
+        run: node --import tsx apps/collector/src/cli/cronHealthAudit.ts
