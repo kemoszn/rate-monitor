@@ -1,21 +1,23 @@
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import {
-  DEFAULT_LOOKBACK_DAYS,
+  GOOGLE_PROVIDER,
   SUPPORTED_CURRENCIES,
   isSupportedCurrency,
   type CollectedRateResult,
+  type CollectionRunRecord,
   type ExchangeHouseProviderDefinition,
   type ExtractError,
   type ExtractResponse,
   type ExtractResult,
   type FailedRateCollection,
   type RunStatus,
+  type SlackRunSummaryPayload,
+  type SummaryProviderKey,
   type SuccessfulRateCollection,
   type SupportedCurrency
 } from '@rate-monitor/shared';
 import { collectorConfig } from '../config.js';
-import { AlertProcessor } from '../monitoring/alertProcessor.js';
 import { GoogleRateCollector } from '../monitoring/googleCollector.js';
 import { SlackNotifier } from '../monitoring/slackNotifier.js';
 import { deriveNowFlatRate, deriveNowSubsidizedRate } from '../monitoring/derivedRates.js';
@@ -157,6 +159,59 @@ function buildErrorSummary(snapshots: readonly CollectedRateResult[]): string | 
   return failures.length > 0 ? failures.join(', ') : null;
 }
 
+export function summarizeSnapshots(snapshots: readonly CollectedRateResult[]) {
+  const successCount = snapshots.filter((snapshot) => snapshot.status === 'SUCCESS').length;
+  const failureCount = snapshots.length - successCount;
+  return {
+    status: resolveRunStatus(successCount, failureCount),
+    successCount,
+    failureCount,
+    totalSources: snapshots.length,
+    errorSummary: buildErrorSummary(snapshots)
+  };
+}
+
+export function buildRunSnapshotSets(
+  exchangeSnapshots: readonly CollectedRateResult[],
+  googleSnapshots: readonly CollectedRateResult[],
+  derivedSnapshots: readonly CollectedRateResult[]
+) {
+  const summarySnapshots = [...exchangeSnapshots, ...googleSnapshots];
+  return {
+    summarySnapshots,
+    allSnapshots: [...summarySnapshots, ...derivedSnapshots]
+  };
+}
+
+export function buildRunSummaryPayload(
+  run: CollectionRunRecord,
+  currencies: readonly SupportedCurrency[],
+  providerRows: readonly { key: SummaryProviderKey; name: string }[],
+  snapshots: readonly CollectedRateResult[]
+): SlackRunSummaryPayload {
+  return {
+    run_id: run.id,
+    status: run.status,
+    completed_at: run.completed_at ?? run.started_at,
+    success_count: run.success_count,
+    failure_count: run.failure_count,
+    currencies: [...currencies],
+    rows: providerRows.map((provider) => ({
+      provider_key: provider.key,
+      provider_name: provider.name,
+      cells: currencies.map((currency) => {
+        const snapshot =
+          snapshots.find((entry) => entry.providerKey === provider.key && entry.currency === currency) ?? null;
+        return {
+          currency,
+          rate: snapshot?.status === 'SUCCESS' ? snapshot.rate : null,
+          status: snapshot?.status ?? 'FAILED'
+        };
+      })
+    }))
+  };
+}
+
 async function postOpsAlert(webhookUrl: string | undefined, message: string, timeoutMs: number): Promise<void> {
   if (!webhookUrl) return;
   try {
@@ -287,34 +342,37 @@ async function main(): Promise<void> {
     derivedSnapshots.push(flat, subsidized);
   }
 
-  const allSnapshots: CollectedRateResult[] = [...exchangeSnapshots, ...googleSnapshots, ...derivedSnapshots];
+  const { summarySnapshots, allSnapshots } = buildRunSnapshotSets(exchangeSnapshots, googleSnapshots, derivedSnapshots);
   await repo.insertRateSnapshots(run.id, allSnapshots);
 
-  const successCount = allSnapshots.filter((snapshot) => snapshot.status === 'SUCCESS').length;
-  const failureCount = allSnapshots.length - successCount;
+  const metrics = summarizeSnapshots(summarySnapshots);
   const completedRun = await repo.updateCollectionRun({
     id: run.id,
-    status: resolveRunStatus(successCount, failureCount),
+    status: metrics.status,
     completed_at: new Date().toISOString(),
-    success_count: successCount,
-    failure_count: failureCount,
-    total_sources: allSnapshots.length,
-    error_summary: buildErrorSummary(allSnapshots)
+    success_count: metrics.successCount,
+    failure_count: metrics.failureCount,
+    total_sources: metrics.totalSources,
+    error_summary: metrics.errorSummary
   });
 
-  const alertProcessor = new AlertProcessor({
-    repository: repo,
-    notifier: slackNotifier,
-    config: {
-      marketProviderKeys: providers.map((provider) => provider.key),
-      marketProviderNames: Object.fromEntries(providers.map((provider) => [provider.key, provider.displayName])),
-      lookbackDays: DEFAULT_LOOKBACK_DAYS
-    },
-    logger: log
-  });
-  await alertProcessor.processRun(completedRun, env.currencies, margins);
+  const summaryPayload = buildRunSummaryPayload(
+    completedRun,
+    env.currencies,
+    [...providers.map((provider) => ({ key: provider.key, name: provider.displayName })), { key: GOOGLE_PROVIDER.key, name: GOOGLE_PROVIDER.displayName }],
+    summarySnapshots
+  );
+  const delivery = await slackNotifier.send(summaryPayload);
+  if (delivery.deliveryStatus === 'FAILED') {
+    log.warn({ runId: completedRun.id, error: delivery.deliveryError }, 'Run summary delivery failed');
+  } else if (delivery.deliveryStatus === 'SENT') {
+    log.info({ runId: completedRun.id }, 'Run summary delivered');
+  }
 
-  log.info({ runId: completedRun.id, status: completedRun.status, successCount, failureCount }, 'Collection run completed');
+  log.info(
+    { runId: completedRun.id, status: completedRun.status, successCount: metrics.successCount, failureCount: metrics.failureCount },
+    'Collection run completed'
+  );
 
   repo.close();
   await app.close();

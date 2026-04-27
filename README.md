@@ -2,7 +2,7 @@
 
 A scheduled web-rate collector. Runs hourly via GitHub Actions, scrapes a
 configurable list of provider sites with Playwright, persists results to a
-Turso (libSQL) database, and posts threshold-breach alerts to Slack.
+Turso (libSQL) database, and posts per-run rate summaries to Slack.
 
 ## Layout
 
@@ -35,6 +35,11 @@ in a fresh Ubuntu runner. Each run resolves the runner's IP geolocation and
 aligns the Playwright browser timezone, locale, and geolocation to it; rotates
 through a small pool of UA/viewport profiles per provider; and persists
 per-provider success/failure telemetry to Turso for post-hoc auditing.
+
+When `SLACK_RATE_WEBHOOK_URL` is configured, the collector sends one Slack
+summary per run with providers as rows and currencies as columns, ranking the
+successful rates within each currency. `SLACK_OPS_WEBHOOK_URL` remains reserved
+for crash and failure-threshold notifications only.
 
 ## Tests
 

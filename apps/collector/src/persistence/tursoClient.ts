@@ -4,19 +4,13 @@ import { fileURLToPath } from 'node:url';
 import { createClient, type Client, type InValue } from '@libsql/client';
 import {
   SUPPORTED_CURRENCIES,
-  type AlertDeliveryStatus,
-  type AlertEventRecord,
-  type AlertStateRecord,
-  type AlertType,
   type CollectedRateResult,
   type CollectionRunRecord,
-  type MarketRateSummary,
   type NowMarginRecord,
   type NowMode,
   type ProviderKey,
   type RateSnapshotRecord,
   type RunStatus,
-  type SlackAlertPayload,
   type SnapshotStatus,
   type SupportedCurrency
 } from '@rate-monitor/shared';
@@ -73,42 +67,11 @@ function rowToRateSnapshot(row: Record<string, unknown>): RateSnapshotRecord {
   };
 }
 
-function rowToAlertState(row: Record<string, unknown>): AlertStateRecord {
-  return {
-    currency: row.currency as SupportedCurrency,
-    now_mode: row.now_mode as NowMode,
-    alert_type: row.alert_type as AlertType,
-    is_active: row.is_active === 1 || row.is_active === true,
-    activated_at: (row.activated_at as string | null) ?? null,
-    cleared_at: (row.cleared_at as string | null) ?? null,
-    last_run_id: row.last_run_id === null || row.last_run_id === undefined ? null : Number(row.last_run_id),
-    updated_at: row.updated_at as string
-  };
-}
-
 function rowToMarginRecord(row: Record<string, unknown>): NowMarginRecord {
   return {
     currency: row.currency as SupportedCurrency,
     margin_percentage: Number(row.margin_percentage),
     updated_at: row.updated_at as string
-  };
-}
-
-function rowToAlertEvent(row: Record<string, unknown>): AlertEventRecord {
-  return {
-    id: Number(row.id),
-    run_id: Number(row.run_id),
-    currency: row.currency as SupportedCurrency,
-    now_mode: row.now_mode as NowMode,
-    alert_type: row.alert_type as AlertType,
-    triggered_at: row.triggered_at as string,
-    lookback_days: row.lookback_days === null || row.lookback_days === undefined ? null : Number(row.lookback_days),
-    current_now_rate: Number(row.current_now_rate),
-    google_rate: row.google_rate === null || row.google_rate === undefined ? null : Number(row.google_rate),
-    market_rates: JSON.parse(row.market_rates_json as string) as MarketRateSummary[],
-    payload: JSON.parse(row.payload_json as string) as SlackAlertPayload,
-    delivery_status: row.delivery_status as AlertDeliveryStatus,
-    delivery_error: (row.delivery_error as string | null) ?? null
   };
 }
 
@@ -243,31 +206,6 @@ export class MonitoringRepository {
     return result.rows.map((row) => rowToRateSnapshot(row as unknown as Record<string, unknown>));
   }
 
-  async getPreviousMaxRate(input: {
-    currency: SupportedCurrency;
-    provider_key: ProviderKey;
-    before_fetched_at: string;
-    since_fetched_at?: string;
-  }): Promise<number | null> {
-    const result = input.since_fetched_at
-      ? await this.db.execute({
-          sql: `SELECT MAX(rate) AS rate FROM rate_snapshots
-                WHERE currency = ? AND provider_key = ? AND status = 'SUCCESS'
-                  AND rate IS NOT NULL AND fetched_at < ? AND fetched_at >= ?`,
-          args: [input.currency, input.provider_key, input.before_fetched_at, input.since_fetched_at]
-        })
-      : await this.db.execute({
-          sql: `SELECT MAX(rate) AS rate FROM rate_snapshots
-                WHERE currency = ? AND provider_key = ? AND status = 'SUCCESS'
-                  AND rate IS NOT NULL AND fetched_at < ?`,
-          args: [input.currency, input.provider_key, input.before_fetched_at]
-        });
-    const row = result.rows[0];
-    if (!row) return null;
-    const rate = (row as unknown as { rate: number | null }).rate;
-    return rate === null || rate === undefined ? null : Number(rate);
-  }
-
   async getMarginPercentage(currency: SupportedCurrency): Promise<number> {
     const result = await this.db.execute({
       sql: 'SELECT margin_percentage FROM margin_config WHERE currency = ?',
@@ -297,87 +235,6 @@ export class MonitoringRepository {
       args: [input.currency]
     });
     return rowToMarginRecord(result.rows[0] as unknown as Record<string, unknown>);
-  }
-
-  async getAlertState(
-    currency: SupportedCurrency,
-    nowMode: NowMode,
-    alertType: AlertType
-  ): Promise<AlertStateRecord | null> {
-    const result = await this.db.execute({
-      sql: `SELECT * FROM alert_state WHERE currency = ? AND now_mode = ? AND alert_type = ?`,
-      args: [currency, nowMode, alertType]
-    });
-    const row = result.rows[0];
-    return row ? rowToAlertState(row as unknown as Record<string, unknown>) : null;
-  }
-
-  async saveAlertState(input: AlertStateRecord): Promise<void> {
-    await this.db.execute({
-      sql: `INSERT INTO alert_state (
-              currency, now_mode, alert_type, is_active, activated_at,
-              cleared_at, last_run_id, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(currency, now_mode, alert_type) DO UPDATE SET
-              is_active = excluded.is_active,
-              activated_at = excluded.activated_at,
-              cleared_at = excluded.cleared_at,
-              last_run_id = excluded.last_run_id,
-              updated_at = excluded.updated_at`,
-      args: [
-        input.currency,
-        input.now_mode,
-        input.alert_type,
-        input.is_active ? 1 : 0,
-        input.activated_at,
-        input.cleared_at,
-        input.last_run_id,
-        input.updated_at
-      ]
-    });
-  }
-
-  async insertAlertEvent(input: {
-    run_id: number;
-    currency: SupportedCurrency;
-    now_mode: NowMode;
-    alert_type: AlertType;
-    triggered_at: string;
-    lookback_days: number | null;
-    current_now_rate: number;
-    google_rate: number | null;
-    market_rates: MarketRateSummary[];
-    payload: SlackAlertPayload;
-    delivery_status: AlertDeliveryStatus;
-    delivery_error: string | null;
-  }): Promise<AlertEventRecord> {
-    const result = await this.db.execute({
-      sql: `INSERT INTO alert_events (
-              run_id, currency, now_mode, alert_type, triggered_at, lookback_days,
-              current_now_rate, google_rate, market_rates_json, payload_json,
-              delivery_status, delivery_error
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      args: [
-        input.run_id,
-        input.currency,
-        input.now_mode,
-        input.alert_type,
-        input.triggered_at,
-        input.lookback_days,
-        input.current_now_rate,
-        input.google_rate,
-        JSON.stringify(input.market_rates),
-        JSON.stringify(input.payload),
-        input.delivery_status,
-        input.delivery_error
-      ]
-    });
-    const id = bigintToNumber(result.lastInsertRowid);
-    const fetched = await this.db.execute({
-      sql: 'SELECT * FROM alert_events WHERE id = ?',
-      args: [id]
-    });
-    return rowToAlertEvent(fetched.rows[0] as unknown as Record<string, unknown>);
   }
 
   async countRunsSince(since: string): Promise<number> {

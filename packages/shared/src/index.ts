@@ -2,16 +2,9 @@ export const API_VERSION = 'v1' as const;
 
 export const SUPPORTED_CURRENCIES = ['INR', 'PKR', 'NPR'] as const;
 export const NOW_MODES = ['FLAT', 'SUBSIDIZED'] as const;
-export const ALERT_TYPES = [
-  'BEST_IN_MARKET',
-  'ABOVE_GOOGLE',
-  'BEST_AND_ABOVE_GOOGLE',
-  'HIGHEST_IN_LOOKBACK',
-  'HIGHEST_ALL_TIME'
-] as const;
 export const RUN_STATUSES = ['RUNNING', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED'] as const;
 export const SNAPSHOT_STATUSES = ['SUCCESS', 'FAILED'] as const;
-export const ALERT_DELIVERY_STATUSES = ['SENT', 'FAILED', 'SKIPPED'] as const;
+export const SLACK_DELIVERY_STATUSES = ['SENT', 'FAILED', 'SKIPPED'] as const;
 export const EXCHANGE_HOUSE_PROVIDER_KEYS = ['provider-a', 'provider-b', 'provider-c', 'provider-d', 'provider-e'] as const;
 export const BENCHMARK_PROVIDER_KEYS = ['google'] as const;
 export const NOW_PROVIDER_KEYS = ['now-flat', 'now-subsidized'] as const;
@@ -23,18 +16,17 @@ export const SYSTEM_EXTRACTION_MODES = [
   'derived_now_subsidized'
 ] as const;
 export const PROVIDER_PARSER_KEYS = ['provider-a-rate', 'provider-b-rate', 'provider-c-rate', 'provider-d-rate', 'provider-e-rate'] as const;
-export const DEFAULT_LOOKBACK_DAYS = 30 as const;
 
 export type SupportedCurrency = (typeof SUPPORTED_CURRENCIES)[number];
 export type NowMode = (typeof NOW_MODES)[number];
-export type AlertType = (typeof ALERT_TYPES)[number];
 export type RunStatus = (typeof RUN_STATUSES)[number];
 export type SnapshotStatus = (typeof SNAPSHOT_STATUSES)[number];
-export type AlertDeliveryStatus = (typeof ALERT_DELIVERY_STATUSES)[number];
+export type SlackDeliveryStatus = (typeof SLACK_DELIVERY_STATUSES)[number];
 export type ExchangeHouseProviderKey = (typeof EXCHANGE_HOUSE_PROVIDER_KEYS)[number];
 export type BenchmarkProviderKey = (typeof BENCHMARK_PROVIDER_KEYS)[number];
 export type NowProviderKey = (typeof NOW_PROVIDER_KEYS)[number];
 export type ProviderKey = ExchangeHouseProviderKey | BenchmarkProviderKey | NowProviderKey;
+export type SummaryProviderKey = ExchangeHouseProviderKey | BenchmarkProviderKey;
 export type CollectorExtractionMode = (typeof COLLECTOR_EXTRACTION_MODES)[number];
 export type SystemExtractionMode = (typeof SYSTEM_EXTRACTION_MODES)[number];
 export type ProviderParserKey = (typeof PROVIDER_PARSER_KEYS)[number];
@@ -141,22 +133,26 @@ export interface ExtractResponse {
   errors: ExtractError[];
 }
 
-export interface MarketRateSummary {
-  provider_key: ExchangeHouseProviderKey;
-  provider_name: string;
+export interface SlackRunSummaryCell {
+  currency: SupportedCurrency;
   rate: number | null;
   status: SnapshotStatus;
 }
 
-export interface SlackAlertPayload {
-  currency: SupportedCurrency;
-  now_mode: NowMode;
-  alert_type: AlertType;
-  current_now_rate: number;
-  google_rate: number | null;
-  market_rates: MarketRateSummary[];
-  lookback_days: number | null;
-  timestamp: string;
+export interface SlackRunSummaryProviderRow {
+  provider_key: SummaryProviderKey;
+  provider_name: string;
+  cells: SlackRunSummaryCell[];
+}
+
+export interface SlackRunSummaryPayload {
+  run_id: number;
+  status: RunStatus;
+  completed_at: string;
+  success_count: number;
+  failure_count: number;
+  currencies: SupportedCurrency[];
+  rows: SlackRunSummaryProviderRow[];
 }
 
 interface BaseCollectedRateResult {
@@ -228,52 +224,6 @@ export interface NowMarginRecord {
   currency: SupportedCurrency;
   margin_percentage: number;
   updated_at: string;
-}
-
-export interface AlertStateRecord {
-  currency: SupportedCurrency;
-  now_mode: NowMode;
-  alert_type: AlertType;
-  is_active: boolean;
-  activated_at: string | null;
-  cleared_at: string | null;
-  last_run_id: number | null;
-  updated_at: string;
-}
-
-export interface AlertEventRecord {
-  id: number;
-  run_id: number;
-  currency: SupportedCurrency;
-  now_mode: NowMode;
-  alert_type: AlertType;
-  triggered_at: string;
-  lookback_days: number | null;
-  current_now_rate: number;
-  google_rate: number | null;
-  market_rates: MarketRateSummary[];
-  payload: SlackAlertPayload;
-  delivery_status: AlertDeliveryStatus;
-  delivery_error: string | null;
-}
-
-export type AlertConditionStatus = {
-  active: boolean;
-  previous_peak_rate: number | null;
-  lookback_days: number | null;
-};
-
-export type AlertConditions = Record<AlertType, AlertConditionStatus>;
-
-export interface NowModeStatus {
-  now_mode: NowMode;
-  provider_key: NowProviderKey;
-  current_rate: number | null;
-  fetched_at: string | null;
-  margin_percentage: number;
-  google_rate: number | null;
-  market_rates: MarketRateSummary[];
-  conditions: AlertConditions;
 }
 
 const STANDARD_RATE_BOUNDS: Record<SupportedCurrency, RateBounds> = {

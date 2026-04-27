@@ -41,32 +41,3 @@ CREATE TABLE IF NOT EXISTS margin_config (
   margin_percentage REAL NOT NULL,
   updated_at TEXT NOT NULL
 );
-
-CREATE TABLE IF NOT EXISTS alert_state (
-  currency TEXT NOT NULL,
-  now_mode TEXT NOT NULL,
-  alert_type TEXT NOT NULL,
-  is_active INTEGER NOT NULL DEFAULT 0,
-  activated_at TEXT,
-  cleared_at TEXT,
-  last_run_id INTEGER,
-  updated_at TEXT NOT NULL,
-  PRIMARY KEY (currency, now_mode, alert_type)
-);
-
-CREATE TABLE IF NOT EXISTS alert_events (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  run_id INTEGER NOT NULL,
-  currency TEXT NOT NULL,
-  now_mode TEXT NOT NULL,
-  alert_type TEXT NOT NULL,
-  triggered_at TEXT NOT NULL,
-  lookback_days INTEGER,
-  current_now_rate REAL NOT NULL,
-  google_rate REAL,
-  market_rates_json TEXT NOT NULL,
-  payload_json TEXT NOT NULL,
-  delivery_status TEXT NOT NULL,
-  delivery_error TEXT,
-  FOREIGN KEY(run_id) REFERENCES collection_runs(id)
-);
