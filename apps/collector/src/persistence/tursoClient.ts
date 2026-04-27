@@ -4,6 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { createClient, type Client, type InValue } from '@libsql/client';
 import {
   SUPPORTED_CURRENCIES,
+  type CampaignDeliveryStatus,
+  type CampaignRecommendationRecord,
+  type CampaignSignalType,
   type CollectedRateResult,
   type CollectionRunRecord,
   type NowMarginRecord,
@@ -64,6 +67,26 @@ function rowToRateSnapshot(row: Record<string, unknown>): RateSnapshotRecord {
     fetched_at: row.fetched_at as string,
     derived_from_provider_key: (row.derived_from_provider_key as ProviderKey | null) ?? null,
     created_at: row.created_at as string
+  };
+}
+
+function rowToCampaignRecord(row: Record<string, unknown>): CampaignRecommendationRecord {
+  return {
+    id: Number(row.id),
+    run_id: Number(row.run_id),
+    currency: row.currency as SupportedCurrency,
+    signal_type: row.signal_type as CampaignSignalType,
+    delivery_status: row.delivery_status as CampaignDeliveryStatus,
+    flat_rate: Number(row.flat_rate),
+    best_competitor_rate: row.best_competitor_rate === null ? null : Number(row.best_competitor_rate),
+    best_competitor_key: (row.best_competitor_key as ProviderKey | null) ?? null,
+    google_rate: row.google_rate === null ? null : Number(row.google_rate),
+    history_max: row.history_max === null ? null : Number(row.history_max),
+    history_days_available: Number(row.history_days_available),
+    recommended_margin: Number(row.recommended_margin),
+    in_salary_cycle: Number(row.in_salary_cycle),
+    rationale: row.rationale as string,
+    evaluated_at: row.evaluated_at as string
   };
 }
 
@@ -235,6 +258,84 @@ export class MonitoringRepository {
       args: [input.currency]
     });
     return rowToMarginRecord(result.rows[0] as unknown as Record<string, unknown>);
+  }
+
+  async getNowFlatHistorySince(
+    currency: SupportedCurrency,
+    sinceIso: string,
+    excludeRunId: number
+  ): Promise<{ rates: number[]; distinctDays: number }> {
+    const result = await this.db.execute({
+      sql: `SELECT rate, fetched_at FROM rate_snapshots
+            WHERE currency = ?
+              AND provider_key = 'now-flat'
+              AND status = 'SUCCESS'
+              AND rate IS NOT NULL
+              AND fetched_at >= ?
+              AND run_id != ?
+            ORDER BY fetched_at ASC`,
+      args: [currency, sinceIso, excludeRunId]
+    });
+    const rates: number[] = [];
+    const days = new Set<string>();
+    for (const row of result.rows) {
+      const r = (row as unknown as { rate: number; fetched_at: string });
+      rates.push(Number(r.rate));
+      days.add(r.fetched_at.slice(0, 10));
+    }
+    return { rates, distinctDays: days.size };
+  }
+
+  async insertCampaignRecommendation(input: Omit<CampaignRecommendationRecord, 'id'>): Promise<CampaignRecommendationRecord> {
+    const result = await this.db.execute({
+      sql: `INSERT INTO campaign_recommendations (
+              run_id, currency, signal_type, delivery_status, flat_rate,
+              best_competitor_rate, best_competitor_key, google_rate,
+              history_max, history_days_available, recommended_margin,
+              in_salary_cycle, rationale, evaluated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        input.run_id,
+        input.currency,
+        input.signal_type,
+        input.delivery_status,
+        input.flat_rate,
+        input.best_competitor_rate,
+        input.best_competitor_key,
+        input.google_rate,
+        input.history_max,
+        input.history_days_available,
+        input.recommended_margin,
+        input.in_salary_cycle,
+        input.rationale,
+        input.evaluated_at
+      ]
+    });
+    const id = bigintToNumber(result.lastInsertRowid);
+    const row = await this.db.execute({
+      sql: 'SELECT * FROM campaign_recommendations WHERE id = ?',
+      args: [id]
+    });
+    return rowToCampaignRecord(row.rows[0] as unknown as Record<string, unknown>);
+  }
+
+  async getRecentEmittedRecommendation(
+    currency: SupportedCurrency,
+    signalType: CampaignSignalType,
+    sinceIso: string
+  ): Promise<CampaignRecommendationRecord | null> {
+    const result = await this.db.execute({
+      sql: `SELECT * FROM campaign_recommendations
+            WHERE currency = ?
+              AND signal_type = ?
+              AND delivery_status = 'EMITTED'
+              AND evaluated_at >= ?
+            ORDER BY evaluated_at DESC
+            LIMIT 1`,
+      args: [currency, signalType, sinceIso]
+    });
+    const row = result.rows[0];
+    return row ? rowToCampaignRecord(row as unknown as Record<string, unknown>) : null;
   }
 
   async countRunsSince(since: string): Promise<number> {

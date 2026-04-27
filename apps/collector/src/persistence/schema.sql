@@ -41,3 +41,25 @@ CREATE TABLE IF NOT EXISTS margin_config (
   margin_percentage REAL NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS campaign_recommendations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id INTEGER NOT NULL,
+  currency TEXT NOT NULL,
+  signal_type TEXT NOT NULL,
+  delivery_status TEXT NOT NULL,
+  flat_rate REAL NOT NULL,
+  best_competitor_rate REAL,
+  best_competitor_key TEXT,
+  google_rate REAL,
+  history_max REAL,
+  history_days_available INTEGER NOT NULL DEFAULT 0,
+  recommended_margin REAL NOT NULL,
+  in_salary_cycle INTEGER NOT NULL,
+  rationale TEXT NOT NULL,
+  evaluated_at TEXT NOT NULL,
+  FOREIGN KEY(run_id) REFERENCES collection_runs(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_campaign_recs_currency_signal_evaluated
+  ON campaign_recommendations (currency, signal_type, evaluated_at);

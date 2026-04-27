@@ -226,6 +226,47 @@ export interface NowMarginRecord {
   updated_at: string;
 }
 
+export const CAMPAIGN_SIGNAL_TYPES = ['LIVE_RATE', 'BEST_IN_MARKET', 'BEAT_GOOGLE', 'NEW_HIGH'] as const;
+export type CampaignSignalType = (typeof CAMPAIGN_SIGNAL_TYPES)[number];
+
+export const CAMPAIGN_DELIVERY_STATUSES = ['EMITTED', 'SUPPRESSED_DUPLICATE', 'SUPPRESSED_COLD_START'] as const;
+export type CampaignDeliveryStatus = (typeof CAMPAIGN_DELIVERY_STATUSES)[number];
+
+export interface CampaignRecommendation {
+  currency: SupportedCurrency;
+  signalType: CampaignSignalType;
+  deliveryStatus: CampaignDeliveryStatus;
+  flatRate: number;
+  bestCompetitorRate: number | null;
+  bestCompetitorKey: ProviderKey | null;
+  googleRate: number | null;
+  historyMax: number | null;
+  historyDaysAvailable: number;
+  recommendedMargin: number;
+  effectiveRate: number;
+  inSalaryCycle: boolean;
+  rationale: string;
+  evaluatedAt: string;
+}
+
+export interface CampaignRecommendationRecord {
+  id: number;
+  run_id: number;
+  currency: SupportedCurrency;
+  signal_type: CampaignSignalType;
+  delivery_status: CampaignDeliveryStatus;
+  flat_rate: number;
+  best_competitor_rate: number | null;
+  best_competitor_key: ProviderKey | null;
+  google_rate: number | null;
+  history_max: number | null;
+  history_days_available: number;
+  recommended_margin: number;
+  in_salary_cycle: number;
+  rationale: string;
+  evaluated_at: string;
+}
+
 const STANDARD_RATE_BOUNDS: Record<SupportedCurrency, RateBounds> = {
   INR: { min: 10, max: 40 },
   PKR: { min: 20, max: 120 },

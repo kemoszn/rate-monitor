@@ -18,6 +18,8 @@ import {
   type SupportedCurrency
 } from '@rate-monitor/shared';
 import { collectorConfig } from '../config.js';
+import { CampaignNotifier } from '../decision/campaignNotifier.js';
+import { evaluateRun, type EngineConfig } from '../decision/engine.js';
 import { GoogleRateCollector } from '../monitoring/googleCollector.js';
 import { SlackNotifier } from '../monitoring/slackNotifier.js';
 import { deriveNowFlatRate, deriveNowSubsidizedRate } from '../monitoring/derivedRates.js';
@@ -31,13 +33,19 @@ import { resolveGeoContext } from '../runtime/geoContext.js';
 
 interface CronEnv {
   turso: { url: string; authToken: string | undefined };
-  slack: { rateWebhookUrl: string | undefined; opsWebhookUrl: string | undefined; timeoutMs: number };
+  slack: {
+    rateWebhookUrl: string | undefined;
+    opsWebhookUrl: string | undefined;
+    campaignWebhookUrl: string | undefined;
+    timeoutMs: number;
+  };
   google: { baseUrl: string; timeoutMs: number; baseCurrency: string; userAgent: string };
   currencies: readonly SupportedCurrency[];
   failureExitThreshold: number;
   triggeredBy: string;
   triggerReason: string | null;
   geoLookupEnabled: boolean;
+  engine: EngineConfig;
 }
 
 function parseEnv(): CronEnv {
@@ -61,6 +69,7 @@ function parseEnv(): CronEnv {
     slack: {
       rateWebhookUrl: process.env.SLACK_RATE_WEBHOOK_URL ?? process.env.SLACK_WEBHOOK_URL,
       opsWebhookUrl: process.env.SLACK_OPS_WEBHOOK_URL,
+      campaignWebhookUrl: process.env.SLACK_CAMPAIGN_WEBHOOK_URL,
       timeoutMs: Number.parseInt(process.env.SLACK_REQUEST_TIMEOUT_MS ?? '10000', 10)
     },
     google: {
@@ -75,7 +84,12 @@ function parseEnv(): CronEnv {
     failureExitThreshold: Number.parseInt(process.env.FAILURE_EXIT_THRESHOLD ?? '3', 10),
     triggeredBy: process.env.TRIGGERED_BY ?? (process.env.GITHUB_RUN_ID ? 'github_actions' : 'manual'),
     triggerReason: process.env.TRIGGER_REASON ?? (process.env.GITHUB_RUN_ID ? `gha_run_${process.env.GITHUB_RUN_ID}` : null),
-    geoLookupEnabled: (process.env.GEO_LOOKUP_ENABLED ?? 'true').toLowerCase() !== 'false'
+    geoLookupEnabled: (process.env.GEO_LOOKUP_ENABLED ?? 'true').toLowerCase() !== 'false',
+    engine: {
+      newHighHistoryDays: Number.parseInt(process.env.NEW_HIGH_HISTORY_DAYS ?? '30', 10),
+      newHighMinHistoryDays: Number.parseInt(process.env.NEW_HIGH_MIN_HISTORY_DAYS ?? '21', 10),
+      dedupWindowHours: Number.parseInt(process.env.CAMPAIGN_DEDUP_WINDOW_HOURS ?? '6', 10)
+    }
   };
 }
 
@@ -367,6 +381,42 @@ async function main(): Promise<void> {
     log.warn({ runId: completedRun.id, error: delivery.deliveryError }, 'Run summary delivery failed');
   } else if (delivery.deliveryStatus === 'SENT') {
     log.info({ runId: completedRun.id }, 'Run summary delivered');
+  }
+
+  try {
+    const recommendations = await evaluateRun({
+      repo,
+      runId: completedRun.id,
+      currencies: env.currencies,
+      timezoneId: geo?.timezoneId ?? null,
+      config: env.engine,
+      log
+    });
+    if (recommendations.length > 0) {
+      const campaignNotifier = new CampaignNotifier({
+        webhookUrl: env.slack.campaignWebhookUrl,
+        timeoutMs: env.slack.timeoutMs
+      });
+      const campaignDelivery = await campaignNotifier.send(completedRun.id, recommendations);
+      if (campaignDelivery.deliveryStatus === 'FAILED') {
+        log.warn(
+          { runId: completedRun.id, error: campaignDelivery.deliveryError },
+          'Campaign recommendation delivery failed'
+        );
+      } else if (campaignDelivery.deliveryStatus === 'SENT') {
+        log.info(
+          { runId: completedRun.id, count: recommendations.length },
+          'Campaign recommendations delivered'
+        );
+      }
+    } else {
+      log.info({ runId: completedRun.id }, 'Decision engine emitted no recommendations');
+    }
+  } catch (error) {
+    log.error(
+      { runId: completedRun.id, err: error instanceof Error ? error.message : 'unknown' },
+      'Decision engine failed (non-fatal)'
+    );
   }
 
   log.info(
