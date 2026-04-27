@@ -48,6 +48,7 @@ jobs:
           TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
           SLACK_RATE_WEBHOOK_URL: ${{ secrets.SLACK_RATE_WEBHOOK_URL }}
           SLACK_OPS_WEBHOOK_URL: ${{ secrets.SLACK_OPS_WEBHOOK_URL }}
+          SLACK_CAMPAIGN_WEBHOOK_URL: ${{ secrets.SLACK_CAMPAIGN_WEBHOOK_URL }}
           EXTRACTION_TARGET_COUNTRY: ${{ secrets.EXTRACTION_TARGET_COUNTRY }}
           # Baseline expected failures from a non-target-country runner:
           # provider-c (LuLu) IP-served content gives 3 PARSE_FAILED, and

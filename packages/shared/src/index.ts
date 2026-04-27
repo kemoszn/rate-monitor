@@ -229,7 +229,13 @@ export interface NowMarginRecord {
 export const CAMPAIGN_SIGNAL_TYPES = ['LIVE_RATE', 'BEST_IN_MARKET', 'BEAT_GOOGLE', 'NEW_HIGH'] as const;
 export type CampaignSignalType = (typeof CAMPAIGN_SIGNAL_TYPES)[number];
 
-export const CAMPAIGN_DELIVERY_STATUSES = ['EMITTED', 'SUPPRESSED_DUPLICATE', 'SUPPRESSED_COLD_START'] as const;
+export const CAMPAIGN_DELIVERY_STATUSES = [
+  'EMITTED',
+  'SUPPRESSED_DUPLICATE',
+  'SUPPRESSED_COLD_START',
+  'SUPPRESSED_NO_WEBHOOK',
+  'SUPPRESSED_DELIVERY_FAILED'
+] as const;
 export type CampaignDeliveryStatus = (typeof CAMPAIGN_DELIVERY_STATUSES)[number];
 
 export interface CampaignRecommendation {

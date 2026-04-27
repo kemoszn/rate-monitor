@@ -384,7 +384,7 @@ async function main(): Promise<void> {
   }
 
   try {
-    const recommendations = await evaluateRun({
+    const plan = await evaluateRun({
       repo,
       runId: completedRun.id,
       currencies: env.currencies,
@@ -392,25 +392,32 @@ async function main(): Promise<void> {
       config: env.engine,
       log
     });
-    if (recommendations.length > 0) {
+    if (plan.freshRecommendations.length > 0) {
       const campaignNotifier = new CampaignNotifier({
         webhookUrl: env.slack.campaignWebhookUrl,
         timeoutMs: env.slack.timeoutMs
       });
-      const campaignDelivery = await campaignNotifier.send(completedRun.id, recommendations);
+      const campaignDelivery = await campaignNotifier.send(completedRun.id, plan.freshRecommendations);
+      await plan.finalize(campaignDelivery.deliveryStatus);
       if (campaignDelivery.deliveryStatus === 'FAILED') {
         log.warn(
-          { runId: completedRun.id, error: campaignDelivery.deliveryError },
-          'Campaign recommendation delivery failed'
+          { runId: completedRun.id, count: plan.freshRecommendations.length, error: campaignDelivery.deliveryError },
+          'Campaign recommendation delivery failed; not marked as EMITTED so next run can retry'
         );
-      } else if (campaignDelivery.deliveryStatus === 'SENT') {
+      } else if (campaignDelivery.deliveryStatus === 'SKIPPED') {
+        log.warn(
+          { runId: completedRun.id, count: plan.freshRecommendations.length },
+          'Campaign webhook not configured; recommendations recorded as SUPPRESSED_NO_WEBHOOK so next run can retry'
+        );
+      } else {
         log.info(
-          { runId: completedRun.id, count: recommendations.length },
+          { runId: completedRun.id, count: plan.freshRecommendations.length },
           'Campaign recommendations delivered'
         );
       }
     } else {
-      log.info({ runId: completedRun.id }, 'Decision engine emitted no recommendations');
+      await plan.finalize('SKIPPED');
+      log.info({ runId: completedRun.id }, 'Decision engine emitted no fresh recommendations');
     }
   } catch (error) {
     log.error(
